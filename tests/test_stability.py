@@ -40,6 +40,31 @@ class CoreTests(unittest.TestCase):
         rows,_=read_excel(path); self.assertEqual(rows[0]['collected'],'')
         self.assertEqual(rows[0]['date'],'2026-11-07')
 
+    def test_quick_check_uses_confirmed_column_positions(self):
+        path = self.root / 'Quick Check Sample Items_2026_11_10.xlsx'
+        wb = Workbook()
+        ws = wb.active
+        for cell, value in {
+            'A1': 'Record ID', 'Y1': 'BAS（样品）', 'AN1': '项目（课题）',
+            'AE1': '采集日期时间', 'AF1': '采集日期', 'AG1': '采集时分',
+            'A2': 1, 'Y2': 'DEMO.00001', 'AN2': 'P001', 'AE2': '2026-11-10 09:15',
+            'A3': 2, 'Y3': 'DEMO.00002', 'AN3': 'P002', 'AF3': '2026-11-10', 'AG3': '10:00',
+        }.items():
+            ws[cell] = value
+        wb.save(path)
+        wb.close()
+        rows, errors = read_excel(path)
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            [(row['bas'], row['project'], row['collected']) for row in rows],
+            [('DEMO.00001', 'P001', '2026-11-10 09:15:00'),
+             ('DEMO.00002', 'P002', '2026-11-10 10:00:00')],
+        )
+        unrelated = self.root / 'unrelated.xlsx'
+        path.rename(unrelated)
+        with self.assertRaises(ValueError):
+            read_excel(unrelated)
+
     def test_96h_boundary_and_done(self):
         self.seed(); s=self.sample(); end=datetime(2026,11,11,9,59)
         self.assertEqual(deadline(s),end)

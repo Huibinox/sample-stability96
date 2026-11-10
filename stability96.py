@@ -7,6 +7,7 @@ import queue
 import socket
 import threading
 import time
+import unicodedata
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,7 +25,8 @@ HEADERS = {
 }
 
 def norm(value):
-    return ''.join(str(value or '').strip().lower().split())
+    normalized = unicodedata.normalize('NFKC', str(value or '')).casefold()
+    return ''.join(c for c in normalized if not c.isspace() and unicodedata.category(c) != 'Cf')
 
 def text(value):
     if value is None: return ''
@@ -79,11 +81,13 @@ def collection(combined, day, clock):
 
 def read_excel(path):
     path = Path(path)
+    quick_check = norm(path.stem).startswith('quickchecksampleitems')
     rows, errors = [], []
     book = load_workbook(path, read_only=True, data_only=True)
     try:
         found = False
         for sheet in book:
+            sheet.reset_dimensions()
             mapping = None
             for number, cells in enumerate(sheet.iter_rows(), 1):
                 row = tuple(cell.value for cell in cells)
@@ -92,6 +96,16 @@ def read_excel(path):
                     candidates = {norm(v): i for i, v in enumerate(row) if v is not None}
                     trial = {key: next((candidates[norm(a)] for a in aliases if norm(a) in candidates), None)
                              for key, aliases in HEADERS.items()}
+                    if quick_check and len(row) >= 40 and (
+                        norm(row[0]) == 'recordid' or
+                        any(trial[key] == index for key, index in
+                            (('collected', 30), ('date', 31), ('time', 32)))
+                    ) and (trial['bas'] is None or trial['project'] is None):
+                        # Confirmed Quick Check export layout. Indices are zero-based.
+                        trial.update(bas=24, project=39)
+                        for key, index in (('collected', 30), ('date', 31), ('time', 32)):
+                            if trial[key] is None:
+                                trial[key] = index
                     if trial['bas'] is not None and trial['project'] is not None:
                         mapping = trial; found = True
                     continue
@@ -111,7 +125,7 @@ def read_excel(path):
                 collected, date_only, issue = collection(combined, val('date'), val('time'))
                 rows.append(dict(bas=bas, project=project, collected=collected, date=date_only,
                                  issue=issue, source=f'{path.name} / {sheet.title} / 第{number}行'))
-        if not found: raise ValueError('前30行中未找到“样品编号”和“BAS课题号/课题号”表头')
+        if not found: raise ValueError('前30行未识别到样品编号和项目号。Quick Check 导出请保留原文件名、表头及 Y/AN 列。')
     finally: book.close()
     return rows, errors
 
