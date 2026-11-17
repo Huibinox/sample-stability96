@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>96h 样本稳定期助手</title>
+<style>
+:root{font:15px "Segoe UI","Microsoft YaHei",sans-serif;color:#18343c;background:#eef4f4;--teal:#12635c;--line:#dbe7e7}
+*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:default}
+header{background:linear-gradient(115deg,#132f3b,#165f5a);color:white}
+.wrap{max-width:1260px;margin:auto;padding:28px 24px}.hero,.toolbar,.actions,.tabs{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hero,.toolbar{justify-content:space-between}h1{font-size:28px;margin:0 0 8px}header p{margin:0;color:#d7ecea}
+button,input{border:1px solid #bfd1d2;border-radius:8px;background:white;padding:8px 12px;color:inherit}
+button:hover{border-color:var(--teal)}:focus-visible{outline:2px solid #1c8176;outline-offset:2px}
+.primary,.tabs button[aria-pressed=true]{background:var(--teal);border-color:var(--teal);color:#fff}
+.hero button{color:#17343d}.panel{background:white;border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 28px #13343b0e}
+.toolbar{padding:14px}.table{overflow:auto}table{min-width:760px;width:100%;border-collapse:collapse;text-align:left}
+th,td{padding:12px 14px;border-top:1px solid var(--line)}thead th{background:#f0f6f6;font-size:13px}
+td:first-child{font-weight:700}td small{display:block;color:#4f666b;margin-top:3px}
+.group th{background:#f0f6f6;color:#315b61}.time{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.urgent{background:#fff0ef;color:#8d242d}.soon{color:#964d13}.watch{color:#735a17}
+#message{min-height:1.4em;color:#3f6268}.error{color:#982b35!important}
+details{margin-top:16px;color:#45656a}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+dialog{border:1px solid var(--line);border-radius:16px;color:inherit;width:min(490px,calc(100% - 24px));padding:24px}
+dialog::backdrop{background:#122e3a90}dialog h2{margin:0 0 16px}label{display:grid;gap:5px;margin-bottom:12px}
+dialog input{min-width:0;width:100%}.actions{justify-content:flex-end}.empty{text-align:center;padding:36px;color:#48656b}
+@media(max-width:650px){.wrap{padding:20px 12px}h1{font-size:23px}.toolbar{padding:10px}}
+</style>
+<header><div class="wrap hero">
+  <div><h1>96h 样本稳定期助手</h1><p id="connection">正在连接共享盘…</p></div>
+  <div class="actions"><button id="settings">共享设置</button><button id="import">导入 Excel</button><input id="file" type="file" accept=".xlsx,.xlsm" hidden></div>
+</div></header>
+<main class="wrap">
+  <section class="panel">
+    <div class="toolbar"><div class="tabs" aria-label="样本状态" id="tabs"></div>
+    <div class="actions"><input id="search" type="search" aria-label="搜索 BAS 或项目" placeholder="搜索 BAS 或项目"><button id="refresh">刷新</button></div></div>
+    <div class="table"><table aria-label="样本列表"><thead><tr><th>BAS ID</th><th>采样时间</th><th>96h 截止</th><th>剩余时间</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+  <p id="message" role="status"></p>
+  <details><summary id="report-title">导入与核对记录</summary><pre id="reports"></pre></details>
+</main>
+<dialog id="setup"><form id="setup-form">
+  <h2>共享设置</h2><label>姓名或工号<input name="actor" required></label>
+  <label>共享文件夹完整路径<input name="shared" required></label>
+  <p data-error role="alert"></p><div class="actions"><button type="button" data-close>取消</button><button class="primary">连接共享盘</button></div>
+</form></dialog>
+<dialog id="editor"><form id="edit-form">
+  <h2>核对采样信息</h2><p id="edit-bas"></p>
+  <label>项目号<input name="project" required></label><label>采样时间<input name="collected" placeholder="YYYY-MM-DD HH:MM[:SS]" required></label>
+  <pre id="issues"></pre><p data-error role="alert"></p>
+  <div class="actions"><button type="button" data-close>取消</button><button class="primary">保存核对</button></div>
+</form></dialog>
+<script>
+const byId = id => document.getElementById(id);
+const tabs = {active:'处理中', missing:'待核对', done:'已完成', expired:'已过期'};
+let tab = 'active', rows = [], now = Date.now(), online = false, busy = false, reading = false, editing;
+function el(tag, text) {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  return node;
+}
+function notice(text, error = false) {
+  byId('message').textContent = text;
+  byId('message').classList.toggle('error', error);
+}
+async function request(path, options) {
+  const response = await fetch('/api/' + path, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error);
+  return data;
+}
+const post = (path, data) => request(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+const seconds = row => row.seconds === null ? null : row.seconds - Math.floor((Date.now() - now) / 1000);
+const state = row => row.state === 'active' && seconds(row) <= 0 ? 'expired' : row.state;
+function clock(value) {
+  const seconds = Math.max(0,value);
+  return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':');
+}
+function tick() {
+  if (rows.some(row => row.state === 'active' && seconds(row) <= 0)) {
+    rows.forEach(row => { row.state = state(row); });
+    render();
+  }
+  document.querySelectorAll('[data-time]').forEach(node => {
+    const value = seconds(node.sample);
+    node.textContent = clock(value);
+    node.className = 'time ' + (value <= 21600 ? 'urgent' : value <= 43200 ? 'soon' : value <= 86400 ? 'watch' : '');
+  });
+}
+function render() {
+  const counts = Object.fromEntries(Object.keys(tabs).map(key=>[key,0]));
+  for (const r of rows) counts[state(r)]++;
+  byId('tabs').replaceChildren(...Object.entries(tabs).map(([key,label]) => {
+    const button=el('button',label+' '+counts[key]);
+    button.setAttribute('aria-pressed',key===tab);
+    button.onclick=()=>{tab=key; render();};
+    return button;
+  }));
+  const query=byId('search').value.trim().toLowerCase();
+  const visible=rows.filter(r=>state(r)===tab && [r.bas,r.project].some(v=>v.toLowerCase().includes(query)))
+    .sort((a,b)=>a.project.localeCompare(b.project)||((a.seconds??Infinity)-(b.seconds??Infinity))||a.bas.localeCompare(b.bas));
+  const table=byId('rows');
+  table.replaceChildren();
+  if (!visible.length) {
+    const cell=el('td','当前没有符合条件的样本'); cell.colSpan=5; cell.className='empty';
+    const row=el('tr',''); row.append(cell); table.append(row); return;
+  }
+  let group;
+  for (const r of visible) {
+    if (group!==r.project) {
+      group=r.project;
+      const title=el('th',group||'未填写项目'); title.colSpan=5; title.scope='rowgroup';
+      const heading=el('tr',''); heading.className='group'; heading.append(title); table.append(heading);
+    }
+    const row=el('tr',''), bas=el('td',r.bas), timer=el('td','—'), actions=el('td','');
+    if (r.done) bas.append(el('small',[r.completed_by,r.completed_at].filter(Boolean).join(' · ')));
+    if (tab==='active') {timer.dataset.time=''; timer.sample=r;}
+    if (tab==='missing') timer.textContent='待核对';
+    if (tab==='expired') timer.textContent='已过期';
+    const action=(label,callback)=>{const button=el('button',label); button.disabled=!online||busy; button.onclick=callback; actions.append(button);};
+    if (tab==='active' || tab==='missing' || tab==='expired') action('核对',()=>edit(r));
+    if (tab==='active' || tab==='missing') action('完成上机',()=>change(r,'complete'));
+    if (tab==='done') action('撤销完成',()=>change(r,'undo'));
+    row.append(bas,el('td',r.collected||r.date||'待补'),el('td',r.due||'—'),timer,actions); table.append(row);
+  }
+  tick();
+}
+async function refresh() {
+  if (reading || busy) return;
+  reading=true;
+  try {
+    const data=await request('samples');
+    rows=data.rows; now=Date.now(); online=true;
+    byId('connection').textContent='共享盘已连接 · '+data.synced;
+    byId('reports').textContent=data.reports.join('\n');
+    byId('report-title').textContent='导入与核对记录（'+data.reports.length+'）';
+    render();
+  } catch(error) {
+    online=false; byId('connection').textContent='共享盘未连接'; notice(error.message,true); render();
+  } finally { reading=false; }
+}
+async function change(r,kind) {
+  if (!online || busy) return;
+  busy=true; render();
+  try {await post('action',{kind,bas:r.bas,expected:r.status_rev}); notice('已保存到共享盘。');}
+  catch(error){notice(error.message,true);}
+  finally {busy=false; await refresh();}
+}
+function edit(r) {
+  editing=r;
+  const form=byId('edit-form');
+  form.elements.project.value=r.project;
+  form.elements.collected.value=r.collected||r.date||'';
+  byId('edit-bas').textContent=r.bas;
+  byId('issues').textContent=[r.source,r.issue,...r.conflicts].filter(Boolean).join('\n');
+  form.querySelector('[data-error]').textContent='';
+  byId('editor').showModal();
+}
+function bindForm(id, callback) {
+  const form=byId(id);
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if (busy) return;
+    busy=true;
+    const submit=form.querySelector('button.primary'), error=form.querySelector('[data-error]');
+    submit.disabled=true; error.textContent='';
+    try {await callback(Object.fromEntries(new FormData(form))); form.closest('dialog').close();}
+    catch(exc){error.textContent=exc.message;}
+    finally {submit.disabled=false; busy=false; await refresh();}
+  };
+}
+bindForm('edit-form', data=>post('action',{...data,kind:'edit',bas:editing.bas,expected:editing.edit_rev}));
+bindForm('setup-form', data=>post('settings',data));
+byId('settings').onclick=async ()=>{
+  try {
+    const data=await request('settings'), form=byId('setup-form');
+    form.querySelector('[data-error]').textContent='';
+    for(const key of ['actor','shared']) form.elements[key].value=data[key]||'';
+    byId('setup').showModal();
+  } catch(error){notice(error.message,true);}
+};
+document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());
+byId('import').onclick=()=>online?byId('file').click():byId('settings').click();
+byId('file').onchange=async event=>{
+  const file=event.target.files[0];
+  if (!file || busy) return;
+  busy=true; notice('正在导入 Excel…');
+  try {
+    const data=await request('upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(file.name)},body:file});
+    notice(data.imported?'已读取 '+data.imported+' 行。':'该文件已导入。');
+  } catch(error){notice(error.message,true);}
+  finally{busy=false;event.target.value='';await refresh();}
+};
+byId('search').oninput=render;
+byId('refresh').onclick=refresh;
+render(); refresh();
+setInterval(refresh,10000);
+setInterval(tick,1000);
+</script>
+</html>
