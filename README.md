@@ -1,43 +1,51 @@
-# 96h 样本稳定期助手 · 0.1.1
+# Sample Stability 96h · v0.1.1
 
-双击 **启动稳定期助手.bat**。首次填写姓名/工号，手动选择大家使用的同一个网络共享文件夹。每台电脑需要 Python 3.10+（含 tkinter）及 openpyxl；缺少依赖时运行 `py -m pip install -r requirements.txt`。本机已确认 Python 3.14、Tk 9、openpyxl 3.1.5 可用。
+A Windows desktop tool for tracking the 96-hour stability window of laboratory samples, with shared-folder collaboration.
 
-![主窗口（人工构造的演示数据）](tests/artifacts/main.png)
+Double-click **启动稳定期助手.bat**. On first launch, enter your name or staff ID and select the same network shared folder used by your colleagues. Each computer needs Python 3.10+ with tkinter and openpyxl. Install missing dependencies with `py -m pip install -r requirements.txt`. Python 3.14, Tk 9, and openpyxl 3.1.5 were confirmed on the development computer.
 
-![桌面小窗（人工构造的演示数据）](tests/artifacts/mini.png)
+The software interface remains in Chinese. Chinese labels and paths below identify the existing controls and folders.
 
-## 使用
+![Main window with synthetic demonstration data](tests/artifacts/main.png)
 
-- 把系统导出的 .xlsx / .xlsm 放在共享文件夹根目录或“待导入”子文件夹。也可点击“导入 Excel”，复制到共享待导入目录。旧式 .xls 须先另存为 xlsx。
-- 每 10 秒扫描，每秒更新倒计时。刚修改的文件等待至少 3 秒再读取。Excel 原件不移动、不删除。
-- 按样品编号/BAS ID 去重，BAS课题号/课题号分组。前 30 行优先匹配表头。对于保留原文件名的 Quick Check Sample Items 导出，表头匹配失败时按 Y 列读取样品编号、AN 列读取项目号。
-- 优先采用 Collection Date and Time；缺失时组合 Collection Date + Collection Time。缺时分不补零点，两份时间不一致或重复 BAS 内容冲突时放入“时间待补/待核对”，双击人工确认。
-- 日期时间按工作电脑当地时间，电脑应设为中国时区并校准时钟。固定采样后 96h。首页总数包含时间待补/待核对，不含已过期和已完成。
-- 按项目折叠，临期优先。颜色在 24/12/6h 依次经过黄/橙/红，最后 6h 淡红底和小血滴图标。
-- Ctrl/Shift 多选样本，标记“已完成上机”；在“已完成”撤销。重复导入不会重置完成。过期自动移出首页；撤销时如果已过期也不回首页。底部提示过期未完成数。
-- 桌面小窗可置顶，显示最近四个样本，可收起和展开主窗口。此版在主窗口完成操作，尚无托盘、开机启动、系统通知。
-- 样本预报只有“待做”占位页，不生成预报。
+![Desktop mini window with synthetic demonstration data](tests/artifacts/mini.png)
 
-## 多人共享及断网
+## Usage
 
-软件在共享目录下创建 `_稳定期助手/操作记录`，每条导入、完成、撤销和人工修正单独存储。勿手动编辑。写入用目录锁串行处理，以同目录临时文件和原子替换发布。本地缓存、姓名和路径在 `%LOCALAPPDATA%/SampleStability96`，不同共享路径分开缓存。
+- Place system-exported .xlsx or .xlsm files in the shared folder root or its pending-import subfolder (`待导入`). Alternatively, click Import Excel (`导入 Excel`) to copy files there. Save legacy .xls files as .xlsx first.
+- Files are scanned every 10 seconds, and countdowns update every second. Recently modified files wait at least 3 seconds before being read. Original Excel files are neither moved nor deleted.
+- Samples are deduplicated by sample number / BAS ID and grouped by BAS study number / study number. Headers are matched within the first 30 rows. For Quick Check Sample Items exports retaining their original filenames, failed header matching falls back to column Y for sample number and column AN for project number.
+- Collection Date and Time takes priority; otherwise, Collection Date and Collection Time are combined. Missing times are not assumed to be midnight. Conflicting timestamps or duplicate BAS details are placed in the time-review group (`时间待补/待核对`); double-click to confirm manually.
+- Dates and times use the workstation's local time. Set the computer to the China time zone and keep its clock accurate. Stability expires 96 hours after collection. The home total includes samples awaiting time review and excludes expired and completed samples.
+- Samples are grouped by project, with the nearest deadline first. Colours change to yellow, orange, and red at 24, 12, and 6 hours remaining. The final 6 hours also show a pale red background and a blood-drop icon.
+- Use Ctrl/Shift to select multiple samples and mark acquisition complete (`已完成上机`). Undo from Completed (`已完成`). Reimporting does not reset completion. Expired samples leave the home view automatically; undoing completion does not return an expired sample to it. The footer shows the number of expired, unfinished samples.
+- The desktop mini window can stay on top and display the next four samples. It can collapse or reopen the main window. Operations are performed in the main window; this version has no system tray, startup integration, or system notifications.
+- Sample forecasting is a placeholder and does not generate forecasts.
 
-相同 Excel 内容按 SHA256 只导入一次，重复 BAS 只补缺失资料，有冲突先核对。人工确认的项目和采样时间优先。操作记录包含姓名、电脑名和时间；姓名是标记，不是身份认证。多人基于旧状态提交时拒绝过期操作，要求刷新。批量逐条提交，中途失败可能部分完成，需要刷新核对。
+## Shared use and network interruptions
 
-断网保留缓存和倒计时，不允许离线提交。共享读取成功不代表已检查所有同事电脑。电脑休眠/关机不扫描、不提醒，恢复后按当前时间重算。
+The application creates `_稳定期助手/操作记录` in the shared folder. Each import, completion, undo, or manual correction is stored separately. Do not edit these records manually. A directory lock serialises writes; temporary files in the same directory and atomic replacement publish updates. Local caches, user names, and paths are stored in `%LOCALAPPDATA%/SampleStability96`, with separate caches for different shared paths.
 
-每个人需有列目录、读取、写入、创建文件夹、重命名和删除软件临时文件的权限。异常退出可能遗留“写入锁”空目录：仅在管理员确认所有客户端停止写入后移除；软件不会自动抢锁。真实共享盘的锁和重命名行为必须实测。
+Identical Excel content is imported once using SHA-256. Duplicate BAS entries only fill missing information; conflicts require review. Manually confirmed projects and collection times take priority. Operation records include the user name, computer name, and time. The name is a label, not authentication. Changes based on stale shared state are rejected and require a refresh. Batch operations commit one item at a time; a failure may leave a partially completed batch, so refresh and check.
 
-建议专用共享目录。扫描范围只含根目录和“待导入”，可手动把旧 Excel 移到其他归档子目录，软件事件仍保留数据。此版全量回放事件，规模增长后需要优化。
+During a network interruption, cached data and countdowns remain available, but offline changes cannot be submitted. A successful shared-folder read does not establish that every colleague's computer has been tested. Sleeping or powered-off computers do not scan or alert; countdowns are recalculated on resume.
 
-## 验证限制
+Users need permission to list, read, write, create folders, rename, and delete the application's temporary files. An abnormal exit may leave an empty write-lock directory. Remove it only after an administrator confirms that all clients have stopped writing. The application does not take over locks automatically. Locking and renaming must be tested on the actual shared drive.
 
-导入映射基于四张照片，尚未获得真实 Excel 工作簿。测试用人工构造的文件，不等同于单位原始 Excel、真实网络盘或两台实机验收。正式使用前请拿脱敏原始导出表核对，并在两台电脑验证导入、去重、补时间、完成、撤销、断网恢复。
+Use a dedicated shared folder. Scanning covers only the root and `待导入`; old Excel files can be moved manually to other archive subfolders without losing event data. This version replays all events and will need optimisation as the record count grows.
 
-检查命令：`py -m unittest discover -s tests -v`。
+## Verification limits
 
-## 浏览器版 · v0.2.0
+Import mapping was based on four photographs; no original Excel workbook was available. Tests use synthetic files and do not establish acceptance of workplace exports, a real network drive, or two physical clients. Before operational use, check de-identified original exports and test import, deduplication, time correction, completion, undo, and recovery from a network interruption on two computers.
 
-双击 **Start-Web.bat** 启动，保留启动窗口。依赖与桌面版相同。已有设置会自动读取，也可以在网页右上角选择「共享设置」，填写同一个共享目录的完整路径。网页只监听当前电脑；同事各自启动即可使用同一份共享记录。
+Run checks with:
 
-浏览器版支持 Excel 导入、10 秒扫描、实时 96h 倒计时、待核对、完成上机、撤销完成和过期查询。Excel 上传上限为 30 MB。浏览器版目前逐条操作，批量选择和桌面置顶小窗请继续使用原桌面入口。样本预报尚未实现。两个版本共用已有事件格式；上线前请用脱敏 Excel 和两台电脑验证公司共享盘。
+```powershell
+py -m unittest discover -s tests -v
+```
+
+## Browser version · v0.2.0
+
+Double-click **Start-Web.bat** and keep the launcher window open. Dependencies are the same as the desktop version. Existing settings are loaded automatically. Shared Settings (`共享设置`) in the top-right corner also accepts the full path to the common shared folder. The web server listens only on the local computer; colleagues launch their own instance to use the same shared records.
+
+The browser version supports Excel import, 10-second scanning, live 96-hour countdowns, review queues, completion, undo, and expired-sample lookup. Excel uploads are limited to 30 MB. Browser operations currently apply to individual samples; use the desktop version for batch selection and the always-on-top mini window. Forecasting is not implemented. Both versions use the existing event format. Test the company shared drive with de-identified Excel files and two computers before rollout.
